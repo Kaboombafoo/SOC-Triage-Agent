@@ -1,11 +1,19 @@
 import os
+import re
 import requests
 from dotenv import load_dotenv
 from anthropic import Anthropic
+from datetime import datetime
 
 load_dotenv()
 client = Anthropic()
 
+def log_verdict(indicator: str, result: str) -> None:
+    """Append a timestamped record of a lookup to triage_log.txt."""
+    timestamp = datetime.now().isoformat(timespec="seconds")
+    line = f"{timestamp} | {indicator} | {result}\n"
+    with open("triage_log.txt", "a") as f:
+        f.write(line)
 
 def defang(indicator: str) -> str:
     """Neutralize a URL or IP so it can't be accidentally clicked."""
@@ -66,6 +74,29 @@ def hash_lookup(file_hash: str) -> str:
         f"Hash {file_hash}: {malicious} of {total} engines flagged it malicious, "
         f"{suspicious} suspicious. Verdict: {verdict}."
     )
+def extract_iocs(text: str) -> str:
+    """Pull IP addresses, domains, and file hashes out of a block of text."""
+    # Each pattern below describes the SHAPE of one kind of indicator.
+    ip_pattern = r"\b(?:\d{1,3}\.){3}\d{1,3}\b"
+    hash_pattern = r"\b[a-fA-F0-9]{32,64}\b"
+    domain_pattern = r"\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b"
+
+    ips = re.findall(ip_pattern, text)
+    hashes = re.findall(hash_pattern, text)
+    domains = re.findall(domain_pattern, text)
+
+    # A hash can look domain-ish to the loose patterns; keep results clean.
+    domains = [d for d in domains if d not in ips]
+
+    lines = []
+    if ips:
+        lines.append("IPs: " + ", ".join(sorted(set(ips))))
+    if hashes:
+        lines.append("Hashes: " + ", ".join(sorted(set(hashes))))
+    if domains:
+        lines.append("Domains: " + ", ".join(sorted(set(domains))))
+
+    return "\n".join(lines) if lines else "No indicators found in the text."
 
 # --- describe our tool to the model
 tools = [
@@ -111,12 +142,26 @@ tools = [
             "required": ["file_hash"],
         },
     },
+    {
+        "name": "extract_iocs",
+        "description": "Extract all IP addresses, domains, and file hashes from a block of text such as an email or alert. Use this when the user pastes raw text and wants the indicators pulled out.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "The raw text to extract indicators from",
+                }
+            },
+            "required": ["text"],
+        },
+    },
 ]
 
 # --- ask the model something that should make it want the tool ---
 # --- start the conversation ---
 messages = [
-    {"role": "user", "content": "Is this hash dangerous? 1111111111111111111111111111111111111111111111111111111111111111"}
+    {"role": "user", "content": "Pull the indicators out of this email and tell me which to check: 'Hi, please verify your account at http://secure-login.evil-malware.com. Our server 192.168.44.7 logged your access. Attached invoice hash: 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f'"}
 ]
 
 # --- the agent loop ---
@@ -146,8 +191,11 @@ while True:
                 result = ip_lookup(block.input["ip"])
             elif block.name == "hash_lookup":
                 result = hash_lookup(block.input["file_hash"])
+            elif block.name == "extract_iocs":
+                result = extract_iocs(block.input["text"])
             else:
                 result = "Unknown tool."
+            log_verdict(block.name, result)
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": block.id,
