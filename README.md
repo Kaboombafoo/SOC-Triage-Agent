@@ -12,10 +12,13 @@ explain line by line.
 
 - **Defang** — neutralizes URLs and IPs so they can't be accidentally clicked
   (`http://evil.com` → `hxxp://evil[.]com`).
+- **IOC extraction** — pulls every IP, domain, and file hash out of raw text
+  (an email, an alert) so the whole message can be triaged at once.
 - **IP lookup** — returns an IP's owner, network (ASN), and country, using live
   data from the IPinfo Lite API.
 - **Hash lookup** — checks a file hash against VirusTotal's 70+ antivirus engines
   and returns a malicious / suspicious / benign verdict.
+- **Verdict logging** — writes each lookup to a timestamped audit trail.
 
 The model decides which tool a request needs, runs it through the loop, and folds
 the result into its answer.
@@ -72,10 +75,10 @@ notes that *unknown does not mean safe*.
 
 ## Roadmap
 
-- **IOC extractor** — paste a raw phishing email or alert and have the agent pull
-  out and triage every indicator, instead of one at a time.
-- **Verdict logging** — write each check and verdict to a file for an audit trail.
-- Extend `hash_lookup`'s pattern to URL and domain reputation.
+## Roadmap
+
+- Extend `hash_lookup`'s pattern to URL and domain reputation checks.
+- Structured (JSON-lines) logging so the audit trail is machine-parsable.
 
 ## Running it
 
